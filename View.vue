@@ -8,7 +8,7 @@ import { useShortcut } from '@ui/shortcuts'
 import { useSettings } from '@ui/composables/settings'
 import { markClipboardWritten, readClipboardText } from './clipboard-source'
 import { DEFAULT_CLIPBOARD_CONFIG } from './types'
-import type { ClipEntry, ClipListResult, ClipSink, ClipboardConfig } from './types'
+import type { ClipEntry, ClipListResult, ClipSink, ClipStats, ClipboardConfig } from './types'
 import ClipboardCard from './components/ClipboardCard.vue'
 
 const uiLang = inject('cockpit:lang', ref('zh')) as Ref<string>
@@ -43,6 +43,8 @@ const MAX_RENDER = 600
 const PAGE = 60
 
 const isPrivate = computed(() => sink.value === 'private')
+const SINKS: ClipSink[] = ['normal', 'private']
+const counts = ref<{ normal: number; private: number }>({ normal: 0, private: 0 })
 
 const sinkLabel = (s: ClipSink): string =>
   s === 'private'
@@ -70,8 +72,18 @@ const columns = computed<ClipEntry[][]>(() => {
 // ---------------------------------------------------------------------------
 // Loading
 // ---------------------------------------------------------------------------
+async function loadStats(): Promise<void> {
+  try {
+    const s = (await window.cockpit.command(`${CMD}.stats`)) as ClipStats | null
+    if (s) counts.value = { normal: Number(s.normal) || 0, private: Number(s.private) || 0 }
+  } catch {
+    /* 计数只是装饰，失败就不显示 */
+  }
+}
+
 async function loadFirst(): Promise<void> {
   loading.value = true
+  void loadStats()
   try {
     const r = (await window.cockpit.command(`${CMD}.list`, {
       sink: sink.value,
@@ -120,8 +132,12 @@ function onScroll(): void {
 // Own-action suppression: 本地乐观更新，忽略自己触发的广播（否则会整页重载）。
 // ---------------------------------------------------------------------------
 let suppressUntil = 0
+let statsTimer: ReturnType<typeof setTimeout> | null = null
 function markOwn(): void {
   suppressUntil = Date.now() + 600
+  // 自己的操作不整页重载，但两个水槽的计数要跟上（移动 / 新建可能落到另一个水槽）
+  if (statsTimer) clearTimeout(statsTimer)
+  statsTimer = setTimeout(() => void loadStats(), 400)
 }
 
 function sortLocal(): void {
@@ -435,6 +451,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   if (queryTimer) clearTimeout(queryTimer)
+  if (statsTimer) clearTimeout(statsTimer)
   if (nowTimer) clearInterval(nowTimer)
   ro?.disconnect()
   scrollRef.value?.removeEventListener('scroll', onScroll)
@@ -456,14 +473,11 @@ watch(query, () => {
 <template>
   <div ref="rootRef" class="clip-root">
     <div class="clip-toolbar" :class="{ 'clip-toolbar--compact': compact }">
-      <div class="clip-title">
-        <div class="d-flex align-center ga-2">
-          <span class="text-h6 font-weight-medium">{{
-            t('launcher-mobile-clipboard.title', '移动剪贴板')
-          }}</span>
-          <v-chip size="small" variant="tonal" class="clip-chip">{{ total }}</v-chip>
+      <div v-if="!compact" class="clip-title">
+        <div class="clip-title__name">
+          {{ t('launcher-mobile-clipboard.title', '移动剪贴板') }}
         </div>
-        <div class="text-caption text-medium-emphasis mt-1">
+        <div class="clip-title__sub">
           {{
             isPrivate
               ? t('launcher-mobile-clipboard.subtitle_private', '私密水槽 · AI 读取需你授权')
@@ -472,27 +486,33 @@ watch(query, () => {
         </div>
       </div>
 
-      <v-btn-toggle
-        v-model="sink"
-        mandatory
-        divided
-        density="comfortable"
-        variant="tonal"
-        class="clip-sink"
-      >
-        <v-btn value="normal" prepend-icon="mdi-clipboard-text-outline">
-          {{ t('launcher-mobile-clipboard.normal', '普通') }}
-        </v-btn>
-        <v-btn value="private" prepend-icon="mdi-lock-outline">
-          {{ t('launcher-mobile-clipboard.private', '私密') }}
-        </v-btn>
-      </v-btn-toggle>
+      <!-- 水槽切换：自绘分段控件，两半等宽、带各自条数；窄屏占满一整行 -->
+      <div class="clip-sink" role="tablist">
+        <button
+          v-for="s in SINKS"
+          :key="s"
+          type="button"
+          role="tab"
+          class="clip-sink__seg"
+          :class="{ 'clip-sink__seg--on': sink === s, 'clip-sink__seg--private': s === 'private' }"
+          :aria-selected="sink === s"
+          @click="sink = s"
+        >
+          <v-icon size="18">{{
+            s === 'private' ? 'mdi-lock-outline' : 'mdi-clipboard-text-outline'
+          }}</v-icon>
+          <span>{{ sinkLabel(s) }}</span>
+          <span class="clip-sink__count">{{ counts[s] }}</span>
+        </button>
+      </div>
 
       <v-text-field
         ref="searchRef"
         v-model="query"
         density="compact"
-        variant="outlined"
+        variant="solo-filled"
+        flat
+        rounded="lg"
         hide-details
         clearable
         prepend-inner-icon="mdi-magnify"
@@ -501,37 +521,19 @@ watch(query, () => {
       />
 
       <div class="clip-actions">
-        <v-btn
-          v-if="!compact"
-          variant="tonal"
-          prepend-icon="mdi-content-paste"
-          :loading="capturing"
-          @click="captureNow"
-        >
-          {{ t('launcher-mobile-clipboard.capture', '捕获') }}
-        </v-btn>
-        <v-btn
-          v-else
-          icon="mdi-content-paste"
-          variant="tonal"
-          size="small"
-          :loading="capturing"
-          :aria-label="t('launcher-mobile-clipboard.capture', '捕获')"
-          :title="t('launcher-mobile-clipboard.capture', '捕获')"
-          @click="captureNow"
-        />
-        <v-btn
-          variant="flat"
-          color="primary"
-          :prepend-icon="compact ? undefined : 'mdi-plus'"
-          :icon="compact ? 'mdi-plus' : undefined"
-          :size="compact ? 'small' : undefined"
-          :aria-label="t('launcher-mobile-clipboard.create', '新建')"
-          :title="t('launcher-mobile-clipboard.create', '新建')"
-          @click="openNew"
-        >
-          <span v-if="!compact">{{ t('launcher-mobile-clipboard.create', '新建') }}</span>
-        </v-btn>
+        <template v-if="!compact">
+          <v-btn
+            variant="tonal"
+            prepend-icon="mdi-content-paste"
+            :loading="capturing"
+            @click="captureNow"
+          >
+            {{ t('launcher-mobile-clipboard.capture', '捕获') }}
+          </v-btn>
+          <v-btn variant="flat" color="primary" prepend-icon="mdi-plus" @click="openNew">
+            {{ t('launcher-mobile-clipboard.create', '新建') }}
+          </v-btn>
+        </template>
         <v-menu location="bottom end">
           <template #activator="{ props: menuProps }">
             <v-btn
@@ -598,21 +600,15 @@ watch(query, () => {
       </div>
     </div>
 
-    <v-alert
-      v-if="isPrivate"
-      type="warning"
-      variant="tonal"
-      density="compact"
-      class="mb-3 clip-alert"
-      icon="mdi-shield-lock-outline"
-    >
-      {{
+    <div v-if="isPrivate" class="clip-notice">
+      <v-icon size="18">mdi-shield-lock-outline</v-icon>
+      <span>{{
         t(
           'launcher-mobile-clipboard.private_notice',
           'private 水槽对 AI 不透明：读取、修改、删除都必须先获得你的授权。'
         )
-      }}
-    </v-alert>
+      }}</span>
+    </div>
 
     <div ref="scrollRef" class="clip-scroll">
       <div v-if="entries.length" class="clip-columns">
@@ -635,17 +631,34 @@ watch(query, () => {
         </div>
       </div>
 
-      <v-empty-state
-        v-else-if="!loading"
-        :icon="isPrivate ? 'mdi-lock-outline' : 'mdi-clipboard-text-clock-outline'"
-        :title="t('launcher-mobile-clipboard.empty_title', '还没有记录')"
-        :text="
-          query
-            ? t('launcher-mobile-clipboard.empty_search', '没有匹配的记录')
-            : t('launcher-mobile-clipboard.empty_text', '复制一段文字，或点右上角「捕获」试试')
-        "
-        class="align-self-center mt-8"
-      />
+      <div v-else-if="!loading" class="clip-empty">
+        <div class="clip-empty__icon">
+          <v-icon size="40">{{
+            query
+              ? 'mdi-text-search'
+              : isPrivate
+                ? 'mdi-lock-outline'
+                : 'mdi-clipboard-text-clock-outline'
+          }}</v-icon>
+        </div>
+        <div class="clip-empty__title">
+          {{
+            query
+              ? t('launcher-mobile-clipboard.empty_search', '没有匹配的记录')
+              : t('launcher-mobile-clipboard.empty_title', '还没有记录')
+          }}
+        </div>
+        <div v-if="!query" class="clip-empty__text">
+          {{
+            compact
+              ? t(
+                  'launcher-mobile-clipboard.empty_text_compact',
+                  '复制一段文字，或点右下角「捕获」'
+                )
+              : t('launcher-mobile-clipboard.empty_text', '复制一段文字，或点右上角「捕获」试试')
+          }}
+        </div>
+      </div>
 
       <div v-if="loadingMore" class="d-flex justify-center py-4">
         <v-progress-circular indeterminate size="26" />
@@ -661,6 +674,33 @@ watch(query, () => {
       >
         {{ t('launcher-mobile-clipboard.render_limit', '已显示足够多，滚动查看的只是当前窗口') }}
       </div>
+    </div>
+
+    <!-- 窄屏：捕获 / 新建放到右下角拇指区，顶栏只留标题与菜单 -->
+    <div v-if="compact" class="clip-fab">
+      <v-btn
+        icon="mdi-pencil-plus-outline"
+        variant="flat"
+        color="surface"
+        size="48"
+        elevation="3"
+        :aria-label="t('launcher-mobile-clipboard.create', '新建')"
+        :title="t('launcher-mobile-clipboard.create', '新建')"
+        @click="openNew"
+      />
+      <v-btn
+        color="primary"
+        variant="flat"
+        size="large"
+        rounded="xl"
+        elevation="4"
+        prepend-icon="mdi-content-paste"
+        class="clip-fab__main"
+        :loading="capturing"
+        @click="captureNow"
+      >
+        {{ t('launcher-mobile-clipboard.capture', '捕获') }}
+      </v-btn>
     </div>
 
     <!-- 编辑 -->
@@ -791,65 +831,173 @@ watch(query, () => {
 
 <style scoped>
 .clip-root {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1 1 0;
   min-height: 240px;
 }
 
+/* ---- 顶栏：宽屏一行，窄屏三行（标题+菜单 / 水槽 / 搜索） ---- */
 .clip-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(180px, 280px) auto;
+  grid-template-areas: 'title sink search actions';
   align-items: center;
-  flex-wrap: wrap;
   gap: 10px 14px;
   margin-bottom: 14px;
 }
 
+.clip-toolbar--compact {
+  /* 外壳 App bar 已经显示能力名，窄屏不再重复标题，菜单并到水槽那一行 */
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'sink actions'
+    'search search';
+  gap: 10px 8px;
+  margin-bottom: 12px;
+}
+
 .clip-title {
-  flex: 1 1 auto;
+  grid-area: title;
   min-width: 0;
 }
 
-.clip-chip {
-  padding-block: 4px;
-  min-height: 24px;
+.clip-title__name {
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.clip-sink :deep(.v-btn) {
-  padding-inline: 14px;
+.clip-title__sub {
+  margin-top: 2px;
+  font-size: 0.75rem;
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
+
+.clip-sink {
+  grid-area: sink;
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(var(--v-theme-on-surface), 0.06);
+}
+
+.clip-sink__seg {
+  flex: 1 1 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(var(--v-theme-on-surface), 0.7);
+  font-size: 0.875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.clip-sink__seg:hover {
+  color: rgb(var(--v-theme-on-surface));
+}
+
+.clip-sink__seg:focus-visible {
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 1px;
+}
+
+.clip-sink__seg--on {
+  --seg: var(--v-theme-primary);
+  background: rgba(var(--seg), 0.16);
+  color: rgb(var(--seg));
+  box-shadow: inset 0 0 0 1px rgba(var(--seg), 0.35);
+}
+
+.clip-sink__seg--private.clip-sink__seg--on {
+  --seg: var(--v-theme-warning);
+}
+
+.clip-sink__count {
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: rgba(var(--v-theme-on-surface), 0.08);
+  font-size: 0.72rem;
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.clip-sink__seg--on .clip-sink__count {
+  background: rgb(var(--seg));
+  color: rgb(var(--v-theme-surface));
 }
 
 .clip-search {
-  width: 260px;
-  flex: 0 1 260px;
+  grid-area: search;
+  min-width: 0;
+}
+
+.clip-search :deep(.v-field) {
+  background: rgba(var(--v-theme-on-surface), 0.06);
 }
 
 .clip-actions {
+  grid-area: actions;
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.clip-toolbar--compact .clip-sink__seg {
+  min-height: 40px;
+}
+
+.clip-notice {
   flex: 0 0 auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: rgba(var(--v-theme-warning), 0.12);
+  color: rgb(var(--v-theme-warning));
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
-.clip-toolbar--compact .clip-search {
-  flex: 1 1 100%;
-  width: auto;
+.clip-notice .v-icon {
+  flex: 0 0 auto;
+  margin-top: 1px;
 }
 
-.clip-toolbar--compact .clip-sink {
-  flex: 1 1 auto;
-}
-
-.clip-alert {
-  border-radius: 12px;
-}
-
+/* ---- 列表 ---- */
 .clip-scroll {
   flex: 1 1 0;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 4px;
+  scrollbar-width: thin;
+}
+
+.clip-toolbar--compact ~ .clip-scroll {
+  padding-right: 0;
+  /* 给右下角的捕获按钮留位置，滚到底的卡片操作不被盖住 */
+  padding-bottom: 88px;
 }
 
 .clip-columns {
@@ -864,5 +1012,56 @@ watch(query, () => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.clip-toolbar--compact ~ .clip-scroll .clip-col {
+  gap: 10px;
+}
+
+/* ---- 空状态 ---- */
+.clip-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding: 56px 16px 24px;
+}
+
+.clip-empty__icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  margin-bottom: 8px;
+  border-radius: 50%;
+  background: rgba(var(--v-theme-primary), 0.12);
+  color: rgb(var(--v-theme-primary));
+}
+
+.clip-empty__title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.clip-empty__text {
+  max-width: 280px;
+  font-size: 0.85rem;
+  color: rgba(var(--v-theme-on-surface), 0.62);
+}
+
+/* ---- 窄屏浮动按钮 ---- */
+.clip-fab {
+  position: absolute;
+  right: 4px;
+  bottom: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.clip-fab__main {
+  letter-spacing: 0.04em;
 }
 </style>

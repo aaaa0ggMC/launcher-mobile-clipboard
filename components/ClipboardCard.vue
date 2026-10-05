@@ -42,7 +42,7 @@ const needsReveal = computed(() => isPrivate.value && props.blur && !props.revea
 const timeText = computed(() => {
   void props.now
   const diff = props.now - props.entry.createdAt
-  if (diff < 45_000) return t('launcher-mobile-clipboard.time.just_now', '刚刚')
+  if (diff < 60_000) return t('launcher-mobile-clipboard.time.just_now', '刚刚')
   const min = Math.floor(diff / 60_000)
   if (min < 60)
     return te('launcher-mobile-clipboard.time.minutes', { n: String(min) }, `${min} 分钟前`)
@@ -282,6 +282,8 @@ function openLink(): void {
 }
 
 .clip-text--blurred {
+  /* 短内容（验证码一行）也要给「点击查看」留出高度，不然遮罩会压在模糊文字上挤成一团 */
+  min-height: 56px;
   filter: blur(5px);
   user-select: none;
 }
@@ -293,10 +295,10 @@ function openLink(): void {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  gap: 2px;
   border: none;
-  border-radius: 8px;
-  background: rgba(var(--v-theme-surface), 0.35);
+  border-radius: 10px;
+  background: rgba(var(--v-theme-surface), 0.45);
   color: rgba(var(--v-theme-on-surface), 0.85);
   font-size: 0.78rem;
   cursor: pointer;
