@@ -502,7 +502,7 @@ watch(query, () => {
             s === 'private' ? 'mdi-lock-outline' : 'mdi-clipboard-text-outline'
           }}</v-icon>
           <span>{{ sinkLabel(s) }}</span>
-          <span class="clip-sink__count">{{ sink === s ? total : counts[s] }}</span>
+          <span class="clip-sink__count">{{ counts[s] }}</span>
         </button>
       </div>
 
