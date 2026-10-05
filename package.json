@@ -1,0 +1,6 @@
+{
+  "name": "@cockpit/launcher-mobile-clipboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "移动剪贴板 —— 双 sink（normal / private）历史瀑布流，AI 读取 private 必须授权"
+}
