@@ -651,7 +651,10 @@ watch(query, () => {
         <div v-if="!query" class="clip-empty__text">
           {{
             compact
-              ? t('launcher-mobile-clipboard.empty_text_compact', '复制一段文字，或点右下角「捕获」')
+              ? t(
+                  'launcher-mobile-clipboard.empty_text_compact',
+                  '复制一段文字，或点右下角「捕获」'
+                )
               : t('launcher-mobile-clipboard.empty_text', '复制一段文字，或点右上角「捕获」试试')
           }}
         </div>
