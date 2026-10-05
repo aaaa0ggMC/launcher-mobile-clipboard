@@ -45,6 +45,7 @@
   "launcher-mobile-clipboard.empty_title": "No entries yet",
   "launcher-mobile-clipboard.empty_search": "No matching entries",
   "launcher-mobile-clipboard.empty_text": "Copy some text, or tap “Capture” at the top right",
+  "launcher-mobile-clipboard.empty_text_compact": "Copy some text, or tap “Capture” at the bottom right",
   "launcher-mobile-clipboard.load_more": "Load more",
   "launcher-mobile-clipboard.render_limit": "Enough entries are shown; scrolling only reveals the current window",
 

@@ -45,6 +45,7 @@
   "launcher-mobile-clipboard.empty_title": "还没有记录",
   "launcher-mobile-clipboard.empty_search": "没有匹配的记录",
   "launcher-mobile-clipboard.empty_text": "复制一段文字，或点右上角「捕获」试试",
+  "launcher-mobile-clipboard.empty_text_compact": "复制一段文字，或点右下角「捕获」",
   "launcher-mobile-clipboard.load_more": "加载更多",
   "launcher-mobile-clipboard.render_limit": "已显示足够多，滚动查看的只是当前窗口",
 
