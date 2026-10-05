@@ -520,18 +520,27 @@ watch(query, () => {
           :title="t('launcher-mobile-clipboard.capture', '捕获')"
           @click="captureNow"
         />
+        <!-- 图标按钮与文字按钮分开写：v-btn 一旦有默认插槽（哪怕 v-if 为假留下的注释节点）
+             就不再渲染 icon，窄屏会变成一个没有图标的实心圆点 -->
         <v-btn
+          v-if="!compact"
           variant="flat"
           color="primary"
-          :prepend-icon="compact ? undefined : 'mdi-plus'"
-          :icon="compact ? 'mdi-plus' : undefined"
-          :size="compact ? 'small' : undefined"
+          prepend-icon="mdi-plus"
+          @click="openNew"
+        >
+          {{ t('launcher-mobile-clipboard.create', '新建') }}
+        </v-btn>
+        <v-btn
+          v-else
+          icon="mdi-plus"
+          variant="flat"
+          color="primary"
+          size="small"
           :aria-label="t('launcher-mobile-clipboard.create', '新建')"
           :title="t('launcher-mobile-clipboard.create', '新建')"
           @click="openNew"
-        >
-          <span v-if="!compact">{{ t('launcher-mobile-clipboard.create', '新建') }}</span>
-        </v-btn>
+        />
         <v-menu location="bottom end">
           <template #activator="{ props: menuProps }">
             <v-btn
