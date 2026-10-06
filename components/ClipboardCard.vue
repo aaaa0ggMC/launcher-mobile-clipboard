@@ -1,7 +1,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'cockpit-clipboard-card' })
 
-import { computed, inject, ref } from 'vue'
+import { computed, inject, nextTick, ref } from 'vue'
 import type { Ref } from 'vue'
 import { translate, translateTemplate } from '@ui/i18n'
 import type { ClipEntry } from '../types'
@@ -31,6 +31,19 @@ const te = (key: string, vars: Record<string, string>, fallback?: string): strin
 const PRIVACY_SCOPE = 'launcher-mobile-clipboard.private'
 
 const expanded = ref(false)
+const cardRef = ref<HTMLElement | null>(null)
+
+function toggleExpand(): void {
+  expanded.value = !expanded.value
+  // 收起很长的一条时，页面可能停在它原来的下半截：把卡片头拉回视野
+  if (!expanded.value)
+    void nextTick(() => {
+      const el = cardRef.value
+      if (!el) return
+      const top = el.parentElement?.closest('.clip-scroll')?.getBoundingClientRect().top ?? 0
+      if (el.getBoundingClientRect().top < top) el.scrollIntoView({ block: 'start' })
+    })
+}
 const isPrivate = computed(() => props.entry.sink === 'private')
 const isLong = computed(
   () => props.entry.text.length > 260 || props.entry.text.split('\n').length > 6
@@ -71,7 +84,7 @@ function openLink(): void {
 </script>
 
 <template>
-  <div class="clip-card" :class="{ 'clip-card--private': isPrivate }">
+  <div ref="cardRef" class="clip-card" :class="{ 'clip-card--private': isPrivate }">
     <div class="clip-card__head">
       <v-icon
         v-if="isPrivate"
@@ -137,7 +150,7 @@ function openLink(): void {
         variant="text"
         size="small"
         :prepend-icon="expanded ? 'mdi-chevron-up' : 'mdi-chevron-down'"
-        @click="expanded = !expanded"
+        @click="toggleExpand"
       >
         {{
           expanded
@@ -270,7 +283,7 @@ function openLink(): void {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   color: rgb(var(--v-theme-on-surface));
-  max-height: 40rem;
+  /* 不设 max-height：展开后整条内容都排出来，由外层列表滚动（原来 40rem 封顶会把长文截断） */
   overflow: hidden;
 }
 
